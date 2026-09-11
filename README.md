@@ -106,6 +106,11 @@ DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）�
 
 ## 更新日志
 
+### v0.4.0
+
+- MCP 工具标记为只读（`readOnlyHint`），并在 `.mcp.json` 设 `default_tools_approval_mode = "writes"`，余额与用量查询不再需要逐次审批
+- 配合用户级 `~/.codex/AGENTS.md` 的规则，可以把摘要作为**回复的最后一行**输出，不必依赖钩子在界面里的呈现位置
+
 ### v0.3.0
 
 - 摘要改为显示**本轮**（一次运算）的 tokens：输入 / 输出 / 缓存命中，绑定 turn id，不会串到上一轮

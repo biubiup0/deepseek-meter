@@ -95,6 +95,11 @@ Only the fields you provide are overridden; set `currency` to `USD` to change th
 
 ## Changelog
 
+### v0.4.0
+
+- MCP tools are marked read-only (`readOnlyHint`) and the server sets `default_tools_approval_mode = "writes"`, so balance and usage lookups no longer need per-call approval
+- Works with a user-level `~/.codex/AGENTS.md` rule so the summary can be printed as the **last line of a reply**, independent of how the app renders hook output
+
 ### v0.3.0
 
 - The summary now reports **per-run** tokens (input / output / cache-hit), pinned to the turn id so a late usage record cannot shift it
