@@ -7,8 +7,7 @@
           {
             "type": "command",
             "command": "/usr/bin/python3 \"$PLUGIN_ROOT/scripts/stop_hook.py\"",
-            "timeout": 20,
-            "statusMessage": "DeepSeek 余额与本次花费"
+            "timeout": 20
           }
         ]
       }

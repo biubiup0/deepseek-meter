@@ -71,6 +71,14 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "refresh_prices",
+        "description": (
+            "Fetch the official DeepSeek price table now instead of waiting for the daily "
+            "refresh, and report the active rates."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -119,6 +127,7 @@ def tool_get_balance(args: dict) -> str:
 
 
 def tool_get_session_cost(args: dict) -> str:
+    meter.refresh_prices_if_stale()
     transcript = args.get("transcript_path")
     if not transcript:
         path = None
@@ -136,6 +145,7 @@ def tool_get_session_cost(args: dict) -> str:
 
 
 def tool_get_usage_summary(args: dict) -> str:
+    meter.refresh_prices_if_stale()
     try:
         days = float(args.get("days") or 7)
     except Exception:
@@ -176,10 +186,46 @@ def tool_get_usage_summary(args: dict) -> str:
     return "\n".join(lines)
 
 
+def tool_refresh_prices(args: dict) -> str:
+    result = meter.refresh_prices_if_stale(force=True, timeout=10.0)
+    source = meter.price_source()
+    prices = meter.load_prices()
+    symbol = meter._symbol(prices.get("currency"))
+
+    if result.get("updated"):
+        lines = ["价目表已从官方页面更新：%s" % source["label"]]
+    elif result.get("ok"):
+        lines = ["价目表已是最新：%s" % source["label"]]
+    else:
+        lines = ["在线更新失败（%s），继续使用：%s" % (result.get("error"), source["label"])]
+
+    for model in ("deepseek-flash", "deepseek-v4-pro"):
+        spec = (prices.get("models") or {}).get(model)
+        if not spec:
+            continue
+        lines.append(
+            "- %s：缓存命中输入 %s%s / 未命中输入 %s%s / 输出 %s%s"
+            % (
+                model,
+                symbol,
+                spec["cache_hit"]["off"],
+                symbol,
+                spec["cache_miss"]["off"],
+                symbol,
+                spec["output"]["off"],
+            )
+        )
+    lines.append(
+        "以上为每百万 tokens 的空闲价；高峰时段（北京时间周一至周五 9:00-12:00、14:00-18:00）为两倍。"
+    )
+    return "\n".join(lines)
+
+
 HANDLERS = {
     "get_balance": tool_get_balance,
     "get_session_cost": tool_get_session_cost,
     "get_usage_summary": tool_get_usage_summary,
+    "refresh_prices": tool_refresh_prices,
 }
 
 

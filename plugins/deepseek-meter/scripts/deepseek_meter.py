@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -31,9 +32,12 @@ CONFIG_FILE = USER_DIR / "config.json"
 PRICE_FILE = USER_DIR / "prices.json"
 CACHE_FILE = DATA_DIR / "balance-cache.json"
 LOG_FILE = DATA_DIR / "meter.log"
+PRICE_CACHE_FILE = DATA_DIR / "prices-cache.json"
 
 BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEFAULT_CACHE_TTL = 60
+PRICE_PAGE_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
+PRICE_REFRESH_HOURS = 24
 
 # CNY per 1M tokens, from the official Chinese pricing page
 # (https://api-docs.deepseek.com/zh-cn/quick_start/pricing).
@@ -96,22 +100,154 @@ def _write_json(path: Path, payload) -> None:
         log("write %s failed: %s" % (path, exc))
 
 
+def _merge_prices(base: dict, override) -> dict:
+    if not isinstance(override, dict):
+        return base
+    if isinstance(override.get("currency"), str):
+        base["currency"] = override["currency"]
+    models = override.get("models")
+    if isinstance(models, dict):
+        for name, spec in models.items():
+            if isinstance(spec, dict):
+                base["models"][name] = spec
+    aliases = override.get("aliases")
+    if isinstance(aliases, dict):
+        base["aliases"].update(aliases)
+    return base
+
+
+def _online_price_cache():
+    """Price table fetched from the official pricing page by the daily refresh."""
+    data = _read_json(PRICE_CACHE_FILE)
+    if isinstance(data, dict) and isinstance(data.get("models"), dict) and data["models"]:
+        return data
+    return None
+
+
 def load_prices() -> dict:
-    """Merge user overrides (``~/.codex/deepseek-meter/prices.json``) into defaults."""
+    """Defaults, then the daily online table, then user overrides on top."""
     prices = json.loads(json.dumps(DEFAULT_PRICES))
-    override = _read_json(PRICE_FILE) or _read_json(DATA_DIR / "prices.json")
-    if isinstance(override, dict):
-        if isinstance(override.get("currency"), str):
-            prices["currency"] = override["currency"]
-        models = override.get("models")
-        if isinstance(models, dict):
-            for name, spec in models.items():
-                if isinstance(spec, dict):
-                    prices["models"][name] = spec
-        aliases = override.get("aliases")
-        if isinstance(aliases, dict):
-            prices["aliases"].update(aliases)
+    _merge_prices(prices, _online_price_cache())
+    _merge_prices(prices, _read_json(PRICE_FILE))
+    _merge_prices(prices, _read_json(DATA_DIR / "prices.json"))
     return prices
+
+
+def price_source() -> dict:
+    """Where the active price table came from, for reports."""
+    user = _read_json(PRICE_FILE) or _read_json(DATA_DIR / "prices.json")
+    if isinstance(user, dict) and isinstance(user.get("models"), dict) and user["models"]:
+        return {"kind": "user", "label": "本地覆盖文件 prices.json"}
+    online = _online_price_cache()
+    if online:
+        fetched = float(online.get("fetched_at") or 0)
+        stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(fetched)) if fetched else "时间未知"
+        return {
+            "kind": "online",
+            "label": "官方在线价目表（%s 更新）" % stamp,
+            "fetched_at": fetched,
+        }
+    return {"kind": "builtin", "label": "内置默认价目表"}
+
+
+_MONEY_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*元")
+
+
+def _flatten_html(raw: str) -> str:
+    text = re.sub(r"<script.*?</script>", " ", raw, flags=re.S | re.I)
+    text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", unescape(text))
+
+
+def parse_price_page(raw_html: str):
+    """Parse the official Chinese pricing page into a price table.
+
+    The page lists prices in this order, each row holding the off-peak and peak
+    value for deepseek-flash followed by deepseek-v4-pro:
+    cache-hit input, cache-miss input, output.
+    """
+    text = _flatten_html(raw_html)
+    anchor = text.find("百万tokens输入")
+    if anchor < 0:
+        anchor = text.find("价格")
+    if anchor < 0:
+        return None
+
+    numbers = [float(item) for item in _MONEY_RE.findall(text[anchor : anchor + 1200])]
+    if len(numbers) < 12:
+        return None
+    flash_hit_off, pro_hit_off, flash_hit_peak, pro_hit_peak = numbers[0:4]
+    flash_miss_off, pro_miss_off, flash_miss_peak, pro_miss_peak = numbers[4:8]
+    flash_out_off, pro_out_off, flash_out_peak, pro_out_peak = numbers[8:12]
+
+    def consistent(off, peak):
+        return off > 0 and peak > 0 and abs(peak - 2 * off) <= max(0.01, off * 0.05)
+
+    checks = [
+        consistent(flash_hit_off, flash_hit_peak),
+        consistent(pro_hit_off, pro_hit_peak),
+        consistent(flash_miss_off, flash_miss_peak),
+        consistent(pro_miss_off, pro_miss_peak),
+        consistent(flash_out_off, flash_out_peak),
+        consistent(pro_out_off, pro_out_peak),
+        flash_hit_off < flash_miss_off < flash_out_off,
+        pro_hit_off < pro_miss_off < pro_out_off,
+    ]
+    if not all(checks):
+        return None
+
+    return {
+        "currency": "CNY",
+        "source": PRICE_PAGE_URL,
+        "models": {
+            "deepseek-flash": {
+                "cache_hit": {"off": flash_hit_off, "peak": flash_hit_peak},
+                "cache_miss": {"off": flash_miss_off, "peak": flash_miss_peak},
+                "output": {"off": flash_out_off, "peak": flash_out_peak},
+            },
+            "deepseek-v4-pro": {
+                "cache_hit": {"off": pro_hit_off, "peak": pro_hit_peak},
+                "cache_miss": {"off": pro_miss_off, "peak": pro_miss_peak},
+                "output": {"off": pro_out_off, "peak": pro_out_peak},
+            },
+        },
+    }
+
+
+def refresh_prices_if_stale(force: bool = False, timeout: float = 6.0) -> dict:
+    """Refresh the official price table at most once a day. Never raises."""
+    cache = _read_json(PRICE_CACHE_FILE) or {}
+    fetched_at = float(cache.get("fetched_at") or 0)
+    age_hours = (time.time() - fetched_at) / 3600.0 if fetched_at else None
+    have_cache = isinstance(cache.get("models"), dict) and bool(cache["models"])
+
+    if not force and have_cache and age_hours is not None and age_hours < PRICE_REFRESH_HOURS:
+        return {"ok": True, "updated": False, "age_hours": age_hours, "source": "cache"}
+
+    try:
+        request = urllib.request.Request(
+            PRICE_PAGE_URL,
+            headers={"User-Agent": "deepseek-meter", "Accept": "text/html"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", "replace")
+        parsed = parse_price_page(raw)
+        if not parsed:
+            raise ValueError("price page layout not recognised")
+        parsed["fetched_at"] = time.time()
+        _write_json(PRICE_CACHE_FILE, parsed)
+        log("price table refreshed from %s" % PRICE_PAGE_URL)
+        return {"ok": True, "updated": True, "age_hours": 0.0, "source": "online"}
+    except Exception as exc:
+        log("price refresh failed: %r" % (exc,))
+        return {
+            "ok": False,
+            "updated": False,
+            "age_hours": age_hours,
+            "source": "cache" if have_cache else "builtin",
+            "error": str(exc),
+        }
 
 
 def resolve_model(model: str, prices: dict) -> str:
@@ -459,6 +595,7 @@ def detail_text(summary: dict, balance: dict) -> str:
     ]
     if summary.get("peak_calls") is not None:
         lines.append("- 高峰期调用：%d 次" % int(summary.get("peak_calls") or 0))
+    lines.append("- 价目表：%s" % price_source()["label"])
     if summary.get("transcript"):
         lines.append("- 会话记录：%s" % Path(summary["transcript"]).name)
     return "\n".join(lines)
