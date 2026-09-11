@@ -1,0 +1,17 @@
+{
+  "description": "Show DeepSeek balance and this session's spend when a turn finishes.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$PLUGIN_ROOT/scripts/stop_hook.py\"",
+            "timeout": 20,
+            "statusMessage": "DeepSeek 余额与本次花费"
+          }
+        ]
+      }
+    ]
+  }
+}

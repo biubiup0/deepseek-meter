@@ -1,0 +1,20 @@
+{
+  "name": "deepseek-meter",
+  "interface": {
+    "displayName": "DeepSeek Meter"
+  },
+  "plugins": [
+    {
+      "name": "deepseek-meter",
+      "source": {
+        "source": "local",
+        "path": "./plugins/deepseek-meter"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "deepseek-meter",
+  "version": "0.1.0",
+  "description": "DeepSeek 账户余额与 Codex 会话花费：每轮结束自动显示，也可随时查询。",
+  "author": {
+    "name": "biubiup0",
+    "url": "https://github.com/biubiup0"
+  },
+  "homepage": "https://github.com/biubiup0/deepseek-meter",
+  "repository": "https://github.com/biubiup0/deepseek-meter",
+  "license": "MIT",
+  "keywords": ["deepseek", "balance", "cost", "usage", "tokens", "codex", "plugin", "mcp", "hook"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DeepSeek Meter",
+    "shortDescription": "DeepSeek 余额与每次会话的花费",
+    "longDescription": "读取 DeepSeek 官方余额接口，并按 Codex 会话记录里的 token 用量估算每次会话的花费（区分缓存命中/未命中与高峰/空闲价）。Stop 钩子在每轮结束时显示一行摘要，同时提供 get_balance、get_session_cost、get_usage_summary 三个工具供随时查询。",
+    "developerName": "biubiup0",
+    "category": "Productivity",
+    "capabilities": ["Read", "Analytics", "Local"],
+    "websiteURL": "https://github.com/biubiup0/deepseek-meter",
+    "defaultPrompt": [
+      "我的 DeepSeek 余额还有多少？",
+      "这次会话花了多少钱？",
+      "看一下我最近 7 天的用量和花费。"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

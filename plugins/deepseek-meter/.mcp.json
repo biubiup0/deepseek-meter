@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "deepseek-meter": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "/Users/biubiup0/plugins/deepseek-meter/scripts/mcp_server.py"
+      ]
+    }
+  }
+}
