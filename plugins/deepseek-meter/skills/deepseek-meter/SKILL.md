@@ -13,7 +13,7 @@ what the **current session** has cost. Both come from this plugin's MCP server.
 | Tool | Use it for |
 | --- | --- |
 | `get_balance` | "余额还有多少" / remaining credit. Pass `force: true` only when the user asks for a fresh number and the cached one looks wrong. |
-| `get_session_cost` | What this conversation cost so far: token breakdown, cache hits, peak-hour calls, estimated spend. |
+| `get_session_cost` | What the latest run and the whole conversation cost: token breakdown, cache hits, peak-hour calls, estimated spend, and the top-up link. |
 | `get_usage_summary` | Rollup across recent sessions, default 7 days. Pass `days` for a different window. |
 | `refresh_prices` | Pull the official price table immediately instead of waiting for the daily refresh. Use when the user says prices changed or asks where the rates come from. |
 
@@ -38,12 +38,19 @@ Prefer calling a tool over guessing. Never invent a balance or a price.
 
 The plugin also bundles a `Stop` hook (`hooks/hooks.json`). After each turn Codex
 runs `scripts/stop_hook.py`, which prints a one-line summary such as
-`DeepSeek · 本次花费 ¥0.0421 ｜ 268k tokens ｜ 余额 ¥110.00 ｜ deepseek-flash`.
+`DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up`.
+The token figures describe **that single run** (one request/answer pair), so the user
+can see what each operation consumed; the hook pins the numbers to the turn id Codex
+passes in, so a slow usage record cannot shift them to the previous run.
 The timing is deliberate: `Stop` fires only after the reply is complete, so the
 summary is always the last thing the user sees and never appears before or in the
 middle of the answer. The hook has no in-progress status line. It only reports — it
 never continues the turn or blocks anything — and stays silent for turns with no
 model calls.
+
+The line ends with the official top-up page so the user can top up straight from the
+summary. Reproduce that link (`https://platform.deepseek.com/top_up`) when the user
+asks how to recharge, and mention the balance is low if it looks low.
 
 ## Configuration
 

@@ -35,6 +35,7 @@ LOG_FILE = DATA_DIR / "meter.log"
 PRICE_CACHE_FILE = DATA_DIR / "prices-cache.json"
 
 BALANCE_URL = "https://api.deepseek.com/user/balance"
+TOPUP_URL = "https://platform.deepseek.com/top_up"
 DEFAULT_CACHE_TTL = 60
 PRICE_PAGE_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
 PRICE_REFRESH_HOURS = 24
@@ -410,31 +411,16 @@ def _prefer_main(paths):
     return (main or paths)[-1]
 
 
-def summarize_transcript(path) -> dict:
-    """Sum every ``token_usage_record`` in a Codex transcript."""
-    result = {
-        "calls": 0,
-        "input_tokens": 0,
-        "cached_input_tokens": 0,
-        "output_tokens": 0,
-        "reasoning_output_tokens": 0,
-        "total_tokens": 0,
-        "cost": 0.0,
-        "model": "",
-        "peak_calls": 0,
-        "started_at": None,
-        "ended_at": None,
-        "transcript": str(path) if path else None,
-    }
+def _collect_usage_records(path):
+    """Read every ``token_usage_record`` as (timestamp, turn_id, usage, model)."""
+    records = []
     if not path:
-        return result
-
-    prices = load_prices()
+        return records
     try:
         handle = open(path, encoding="utf-8")
     except Exception as exc:
         log("cannot read transcript %s: %s" % (path, exc))
-        return result
+        return records
 
     with handle:
         for line in handle:
@@ -451,27 +437,82 @@ def summarize_transcript(path) -> dict:
             usage = payload.get("usage") or {}
             if not isinstance(usage, dict):
                 continue
-            moment = _parse_timestamp(record.get("timestamp"))
-            model = payload.get("model") or result["model"]
-            result["calls"] += 1
-            result["input_tokens"] += int(usage.get("input_tokens") or 0)
-            result["cached_input_tokens"] += int(usage.get("cached_input_tokens") or 0)
-            result["output_tokens"] += int(usage.get("output_tokens") or 0)
-            result["reasoning_output_tokens"] += int(usage.get("reasoning_output_tokens") or 0)
-            result["total_tokens"] += int(usage.get("total_tokens") or 0)
-            result["cost"] += price_usage(usage, moment, model, prices)
-            if is_peak(moment):
-                result["peak_calls"] += 1
-            if result["started_at"] is None:
-                result["started_at"] = record.get("timestamp")
-            result["ended_at"] = record.get("timestamp")
-            if model:
-                result["model"] = model
+            records.append(
+                (record.get("timestamp"), payload.get("turn_id"), usage, payload.get("model"))
+            )
+    return records
+
+
+def _aggregate_records(records, scope: str, transcript, turn_id=None) -> dict:
+    prices = load_prices()
+    result = {
+        "scope": scope,
+        "turn_id": None,
+        "turn_count": 0,
+        "calls": 0,
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 0,
+        "cost": 0.0,
+        "model": "",
+        "peak_calls": 0,
+        "started_at": None,
+        "ended_at": None,
+        "transcript": str(transcript) if transcript else None,
+    }
+
+    turns = []
+    for _timestamp, turn_id, _usage, _model in records:
+        if turn_id and (not turns or turns[-1] != turn_id):
+            turns.append(turn_id)
+    result["turn_count"] = len(turns)
+
+    if scope == "turn":
+        target = turn_id or (turns[-1] if turns else None)
+        result["turn_id"] = target
+        records = [item for item in records if target and item[1] == target]
+
+    for timestamp, _turn_id, usage, model in records:
+        moment = _parse_timestamp(timestamp)
+        resolved = model or result["model"]
+        result["calls"] += 1
+        result["input_tokens"] += int(usage.get("input_tokens") or 0)
+        result["cached_input_tokens"] += int(usage.get("cached_input_tokens") or 0)
+        result["output_tokens"] += int(usage.get("output_tokens") or 0)
+        result["reasoning_output_tokens"] += int(usage.get("reasoning_output_tokens") or 0)
+        result["total_tokens"] += int(usage.get("total_tokens") or 0)
+        result["cost"] += price_usage(usage, moment, resolved, prices)
+        if is_peak(moment):
+            result["peak_calls"] += 1
+        if result["started_at"] is None:
+            result["started_at"] = timestamp
+        result["ended_at"] = timestamp
+        if model:
+            result["model"] = model
 
     if not result["model"]:
         result["model"] = read_config_value("model") or "deepseek-flash"
-    result["currency"] = prices.get("currency", "USD")
+    result["currency"] = prices.get("currency", "CNY")
     return result
+
+
+def summarize_transcript(path, scope: str = "session", turn_id=None) -> dict:
+    """Summarise usage. ``scope='turn'`` keeps only the most recent turn.
+
+    A turn is one request/answer pair — what a single run of the agent consumed.
+    Pass ``turn_id`` to pin the summary to one specific turn (the Stop hook does
+    this so the numbers always describe the run that just finished).
+    ``scope='session'`` covers the whole conversation transcript.
+    """
+    return _aggregate_records(_collect_usage_records(path), scope, path, turn_id)
+
+
+def summarize_session_and_turn(path):
+    """Both scopes from a single read of the transcript."""
+    records = _collect_usage_records(path)
+    return _aggregate_records(records, "session", path), _aggregate_records(records, "turn", path)
 
 
 def fetch_balance(ttl: int = DEFAULT_CACHE_TTL, timeout: float = 8.0, force: bool = False) -> dict:
@@ -558,15 +599,27 @@ def spend_text(summary: dict) -> str:
     return "本次花费 %s%.4f" % (symbol, summary.get("cost") or 0.0)
 
 
+def topup_text() -> str:
+    return "充值 %s" % TOPUP_URL
+
+
 def one_line(summary: dict, balance: dict) -> str:
     """Compact single line shown in the Codex UI after each turn."""
+    label = "本轮" if summary.get("scope") == "turn" else "会话累计"
+    symbol = _symbol(summary.get("currency"))
     parts = [
-        "DeepSeek · %s" % spend_text(summary),
-        "%s tokens" % _short_number(int(summary.get("total_tokens") or 0)),
+        "DeepSeek · %s %s tokens（入 %s / 出 %s，缓存命中 %s）"
+        % (
+            label,
+            _short_number(int(summary.get("total_tokens") or 0)),
+            _short_number(int(summary.get("input_tokens") or 0)),
+            _short_number(int(summary.get("output_tokens") or 0)),
+            _short_number(int(summary.get("cached_input_tokens") or 0)),
+        ),
+        "花费 %s%.4f" % (symbol, summary.get("cost") or 0.0),
         balance_text(balance),
+        topup_text(),
     ]
-    if summary.get("model"):
-        parts.append(summary["model"])
     line = " ｜ ".join(parts)
     if balance and balance.get("stale"):
         line += " · 余额为缓存值"
@@ -574,8 +627,9 @@ def one_line(summary: dict, balance: dict) -> str:
 
 
 def detail_text(summary: dict, balance: dict) -> str:
+    scope_label = "本轮（一次运算）" if summary.get("scope") == "turn" else "整个会话"
     lines = [
-        "DeepSeek 用量",
+        "DeepSeek 用量 · %s" % scope_label,
         "- 模型：%s" % (summary.get("model") or "unknown"),
         "- 模型调用：%d 次" % int(summary.get("calls") or 0),
         "- 输入 tokens：%s（其中缓存命中 %s）"
@@ -592,6 +646,7 @@ def detail_text(summary: dict, balance: dict) -> str:
         "- 按官方价估算花费：%s%.4f"
         % (_symbol(summary.get("currency")), summary.get("cost") or 0.0),
         "- 账户%s" % balance_text(balance).replace("余额 ", "余额："),
+        "- 充值：%s" % TOPUP_URL,
     ]
     if summary.get("peak_calls") is not None:
         lines.append("- 高峰期调用：%d 次" % int(summary.get("peak_calls") or 0))

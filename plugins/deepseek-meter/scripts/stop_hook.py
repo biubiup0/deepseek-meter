@@ -23,13 +23,13 @@ def emit(payload: dict) -> None:
     sys.stdout.flush()
 
 
-def summarize_with_retry(transcript, attempts: int = 4, delay: float = 0.8):
+def summarize_with_retry(transcript, turn_id, attempts: int = 4, delay: float = 0.8):
     """The turn's usage record can land just after the hook fires."""
-    summary = meter.summarize_transcript(transcript)
+    summary = meter.summarize_transcript(transcript, scope="turn", turn_id=turn_id)
     tries = 0
     while not summary.get("calls") and tries < attempts:
         time.sleep(delay)
-        summary = meter.summarize_transcript(transcript)
+        summary = meter.summarize_transcript(transcript, scope="turn", turn_id=turn_id)
         tries += 1
     return summary
 
@@ -50,17 +50,21 @@ def main() -> int:
         return 0
 
     try:
+        # Once a day this pulls the official price table; otherwise it is a no-op.
+        meter.refresh_prices_if_stale()
+
         transcript = event.get("transcript_path")
         if not transcript:
             found = meter.find_transcript(event.get("session_id") or "")
             transcript = str(found) if found else None
 
-        summary = summarize_with_retry(transcript) if transcript else None
-        summary = summary or meter.summarize_transcript(None)
+        summary = summarize_with_retry(transcript, event.get("turn_id")) if transcript else None
+        summary = summary or meter.summarize_transcript(None, scope="turn")
         meter.log(
-            "stop hook: session=%s transcript=%s exists=%s calls=%d"
+            "stop hook: session=%s turn=%s transcript=%s exists=%s calls=%d"
             % (
                 event.get("session_id"),
+                event.get("turn_id"),
                 transcript,
                 bool(transcript) and os.path.exists(transcript),
                 int(summary.get("calls") or 0),

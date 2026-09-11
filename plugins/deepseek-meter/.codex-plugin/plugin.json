@@ -1,6 +1,6 @@
 {
   "name": "deepseek-meter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DeepSeek 账户余额与 Codex 会话花费：每轮结束自动显示，也可随时查询。",
   "author": {
     "name": "biubiup0",

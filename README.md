@@ -9,14 +9,18 @@
 每次回答结束后，会话里会自动出现一行摘要：
 
 ```
-DeepSeek · 本次花费 ¥0.0018 ｜ 12.0k tokens ｜ 余额 ¥20.59 ｜ deepseek-flash
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
 ```
+
+token 数字是**这一轮**（一次请求/回答）的消耗，方便你知道每次运算花了多少；末尾的充值链接点开就是 DeepSeek 官方充值页。
 
 想看细节就直接问：「这次会话花了多少？」「我的余额还有多少？」「最近 7 天用了多少？」
 
 ## 功能
 
 - **每轮自动摘要**：`Stop` 钩子在每轮结束时输出「本次花费 + tokens + 账户余额 + 模型」。
+- **本轮 token 明细**：摘要显示的是这一次运算的输入 / 输出 / 缓存命中 tokens，而不是整个会话的累计值；钩子会绑定本轮 turn id，即使用量记录稍晚落盘也不会串到上一轮。
+- **一键充值**：摘要余额后面直接给出官方充值页链接 `https://platform.deepseek.com/top_up`，点开即可充值。
 - **余额查询**（`get_balance`）：读取 DeepSeek 官方 `/user/balance`，包含赠送余额、充值余额和账户可用状态。
 - **本次会话花费**（`get_session_cost`）：模型调用次数、输入/输出/缓存命中/推理 tokens、按官方单价估算的花费、高峰时段调用次数。
 - **多日汇总**（`get_usage_summary`）：最近 N 天（默认 7 天）的会话数、调用次数、tokens 与花费，并按天列出。
@@ -48,7 +52,7 @@ codex plugin add deepseek-meter@personal
 自动摘要（每轮结束自动出现）：
 
 ```
-DeepSeek · 本次花费 ¥0.0018 ｜ 12.0k tokens ｜ 余额 ¥20.59 ｜ deepseek-flash
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
 ```
 
 **显示时机**：摘要由 `Stop` 钩子产生，只在 Codex 把这一轮内容输出完毕、本轮结束时出现，位置在回答之后；不会插进回答中间，也不会提前显示。钩子不设置进行中提示，也不会让 Codex 继续生成内容。
@@ -57,8 +61,8 @@ DeepSeek · 本次花费 ¥0.0018 ｜ 12.0k tokens ｜ 余额 ¥20.59 ｜ deepse
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
-| `get_balance` | `force`（可选，布尔） | 忽略约 60 秒缓存，立即重新查询 |
-| `get_session_cost` | `session_id`、`transcript_path`（可选） | 默认取最近的主会话记录 |
+| `get_balance` | `force`（可选，布尔） | 忽略约 60 秒缓存，立即重新查询，并附充值页链接 |
+| `get_session_cost` | `session_id`、`transcript_path`（可选） | 同时给出「本轮」和「整个会话」两份明细 |
 | `get_usage_summary` | `days`（可选，默认 7） | 汇总最近若干天的会话 |
 | `refresh_prices` | 无 | 立刻拉取官方价目表并回显当前单价 |
 
@@ -101,6 +105,12 @@ DeepSeek · 本次花费 ¥0.0018 ｜ 12.0k tokens ｜ 余额 ¥20.59 ｜ deepse
 - **触发**：`Stop` 钩子在每轮结束时运行——也就是 Codex 把内容输出完毕、本轮停止之后——把摘要作为系统消息交给 Codex 显示，所以它总是出现在回答之后。没有模型调用的轮次保持静默；由于用量记录可能略晚落盘，钩子会短暂等待重试，避免统计为空。
 
 ## 更新日志
+
+### v0.3.0
+
+- 摘要改为显示**本轮**（一次运算）的 tokens：输入 / 输出 / 缓存命中，绑定 turn id，不会串到上一轮
+- 余额后面新增**充值**条目，直达官方充值页 `https://platform.deepseek.com/top_up`
+- `get_session_cost` 同时返回「本轮」和「整个会话」两份明细
 
 ### v0.2.0
 

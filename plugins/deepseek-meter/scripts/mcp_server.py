@@ -120,6 +120,7 @@ def tool_get_balance(args: dict) -> str:
         "- 充值余额：%s%s"
         % (meter._symbol(balance.get("currency")), balance.get("topped_up_balance")),
         "- 账户可用：%s" % ("是" if balance.get("is_available") else "否"),
+        "- 充值页面：%s" % meter.TOPUP_URL,
     ]
     if balance.get("cached"):
         lines.append("- 数据来自短时缓存" + ("（接口暂时不可用）" if balance.get("stale") else ""))
@@ -137,11 +138,16 @@ def tool_get_session_cost(args: dict) -> str:
         if path is None:
             path = newest_transcript()
         transcript = str(path) if path else None
-    summary = meter.summarize_transcript(transcript)
-    if not summary.get("calls"):
+    session, turn = meter.summarize_session_and_turn(transcript)
+    if not session.get("calls"):
         return "没有找到本会话的 token 用量记录。"
     balance = meter.fetch_balance(timeout=6.0)
-    return meter.detail_text(summary, balance)
+    blocks = []
+    if turn.get("calls"):
+        blocks.append(meter.detail_text(turn, balance))
+    if session.get("calls") and int(session.get("turn_count") or 0) > 1:
+        blocks.append(meter.detail_text(session, balance))
+    return "\n\n".join(blocks)
 
 
 def tool_get_usage_summary(args: dict) -> str:
