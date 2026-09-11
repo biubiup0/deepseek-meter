@@ -34,6 +34,7 @@ TOOLS = [
                 }
             },
         },
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
     },
     {
         "name": "get_session_cost",
@@ -54,6 +55,7 @@ TOOLS = [
                 },
             },
         },
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
         "name": "get_usage_summary",
@@ -70,6 +72,7 @@ TOOLS = [
                 }
             },
         },
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
         "name": "refresh_prices",
@@ -78,6 +81,7 @@ TOOLS = [
             "refresh, and report the active rates."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
     },
 ]
 
