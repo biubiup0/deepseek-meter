@@ -50,6 +50,11 @@ def main() -> int:
         return 0
 
     try:
+        # Honour the plugin's display toggles before doing any work.
+        if not meter.load_settings().get("show_in_hook", True):
+            emit({"continue": True})
+            return 0
+
         # Once a day this pulls the official price table; otherwise it is a no-op.
         meter.refresh_prices_if_stale()
 

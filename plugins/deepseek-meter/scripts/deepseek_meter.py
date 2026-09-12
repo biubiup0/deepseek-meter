@@ -30,15 +30,21 @@ DATA_DIR = Path(_data_env) if _data_env else (CODEX_HOME / "deepseek-meter")
 USER_DIR = CODEX_HOME / "deepseek-meter"
 CONFIG_FILE = USER_DIR / "config.json"
 PRICE_FILE = USER_DIR / "prices.json"
+SETTINGS_FILE = USER_DIR / "settings.json"
 CACHE_FILE = DATA_DIR / "balance-cache.json"
 LOG_FILE = DATA_DIR / "meter.log"
 PRICE_CACHE_FILE = DATA_DIR / "prices-cache.json"
 
 BALANCE_URL = "https://api.deepseek.com/user/balance"
-TOPUP_URL = "https://platform.deepseek.com/top_up"
 DEFAULT_CACHE_TTL = 60
 PRICE_PAGE_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
 PRICE_REFRESH_HOURS = 24
+
+# Display toggles, editable through the ``configure`` MCP tool or by hand.
+DEFAULT_SETTINGS = {
+    "show_in_reply": True,
+    "show_in_hook": True,
+}
 
 # CNY per 1M tokens, from the official Chinese pricing page
 # (https://api-docs.deepseek.com/zh-cn/quick_start/pricing).
@@ -80,6 +86,28 @@ def log(message: str) -> None:
             handle.write("%s %s\n" % (stamp, message))
     except Exception:
         pass
+
+
+def load_settings() -> dict:
+    """Display toggles; missing or malformed values fall back to the defaults."""
+    data = _read_json(SETTINGS_FILE) or _read_json(DATA_DIR / "settings.json") or {}
+    settings = dict(DEFAULT_SETTINGS)
+    if isinstance(data, dict):
+        for key in DEFAULT_SETTINGS:
+            if isinstance(data.get(key), bool):
+                settings[key] = data[key]
+    return settings
+
+
+def save_settings(updates: dict) -> dict:
+    """Persist the toggles and return the resulting settings."""
+    settings = load_settings()
+    if isinstance(updates, dict):
+        for key in DEFAULT_SETTINGS:
+            if isinstance(updates.get(key), bool):
+                settings[key] = updates[key]
+    _write_json(SETTINGS_FILE, settings)
+    return settings
 
 
 def _read_json(path: Path):
@@ -599,10 +627,6 @@ def spend_text(summary: dict) -> str:
     return "本次花费 %s%.4f" % (symbol, summary.get("cost") or 0.0)
 
 
-def topup_text() -> str:
-    return "充值 %s" % TOPUP_URL
-
-
 def one_line(summary: dict, balance: dict) -> str:
     """Compact single line shown in the Codex UI after each turn."""
     label = "本轮" if summary.get("scope") == "turn" else "会话累计"
@@ -618,7 +642,6 @@ def one_line(summary: dict, balance: dict) -> str:
         ),
         "花费 %s%.4f" % (symbol, summary.get("cost") or 0.0),
         balance_text(balance),
-        topup_text(),
     ]
     line = " ｜ ".join(parts)
     if balance and balance.get("stale"):
@@ -646,7 +669,6 @@ def detail_text(summary: dict, balance: dict) -> str:
         "- 按官方价估算花费：%s%.4f"
         % (_symbol(summary.get("currency")), summary.get("cost") or 0.0),
         "- 账户%s" % balance_text(balance).replace("余额 ", "余额："),
-        "- 充值：%s" % TOPUP_URL,
     ]
     if summary.get("peak_calls") is not None:
         lines.append("- 高峰期调用：%d 次" % int(summary.get("peak_calls") or 0))

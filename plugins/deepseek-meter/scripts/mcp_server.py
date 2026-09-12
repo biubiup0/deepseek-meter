@@ -83,6 +83,38 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": {"readOnlyHint": True, "openWorldHint": True},
     },
+    {
+        "name": "get_status_line",
+        "description": (
+            "Return the DeepSeek status line to append to a reply, honouring the plugin's "
+            "show_in_reply setting. Returns an empty string when the user turned the "
+            "in-reply display off."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
+    },
+    {
+        "name": "configure",
+        "description": (
+            "Read or change the plugin's display settings: show_in_reply (status line at "
+            "the end of replies) and show_in_hook (summary shown by the Stop hook after "
+            "every turn)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "show_in_reply": {
+                    "type": "boolean",
+                    "description": "Append the summary as the last line of replies.",
+                },
+                "show_in_hook": {
+                    "type": "boolean",
+                    "description": "Let the Stop hook show the summary after every turn.",
+                },
+            },
+        },
+        "annotations": {"readOnlyHint": False, "openWorldHint": False},
+    },
 ]
 
 
@@ -124,7 +156,6 @@ def tool_get_balance(args: dict) -> str:
         "- 充值余额：%s%s"
         % (meter._symbol(balance.get("currency")), balance.get("topped_up_balance")),
         "- 账户可用：%s" % ("是" if balance.get("is_available") else "否"),
-        "- 充值页面：%s" % meter.TOPUP_URL,
     ]
     if balance.get("cached"):
         lines.append("- 数据来自短时缓存" + ("（接口暂时不可用）" if balance.get("stale") else ""))
@@ -231,11 +262,44 @@ def tool_refresh_prices(args: dict) -> str:
     return "\n".join(lines)
 
 
+def tool_get_status_line(args: dict) -> str:
+    """The exact line replies should end with, or '' when disabled."""
+    if not meter.load_settings().get("show_in_reply", True):
+        return ""
+    meter.refresh_prices_if_stale()
+    path = newest_transcript()
+    transcript = str(path) if path else None
+    turn = meter.summarize_transcript(transcript, scope="turn")
+    balance = meter.fetch_balance(timeout=6.0)
+    return meter.one_line(turn, balance)
+
+
+def tool_configure(args: dict) -> str:
+    updates = {}
+    for key in ("show_in_reply", "show_in_hook"):
+        if isinstance(args.get(key), bool):
+            updates[key] = args[key]
+    settings = meter.save_settings(updates) if updates else meter.load_settings()
+    lines = [
+        "DeepSeek Meter 设置：%s" % meter.SETTINGS_FILE,
+        "- 正文显示（回复最后一行）：%s" % ("开" if settings["show_in_reply"] else "关"),
+        "- 钩子显示（每轮结束摘要）：%s" % ("开" if settings["show_in_hook"] else "关"),
+    ]
+    if updates:
+        changed = "、".join(sorted(updates))
+        lines.append("已更新：%s" % changed)
+    else:
+        lines.append("未传参数时只读取当前设置；要修改就传 show_in_reply / show_in_hook。")
+    return "\n".join(lines)
+
+
 HANDLERS = {
     "get_balance": tool_get_balance,
     "get_session_cost": tool_get_session_cost,
     "get_usage_summary": tool_get_usage_summary,
     "refresh_prices": tool_refresh_prices,
+    "get_status_line": tool_get_status_line,
+    "configure": tool_configure,
 }
 
 
@@ -276,7 +340,10 @@ def handle(message: dict) -> None:
                     "instructions": (
                         "DeepSeek account balance and Codex session spend. "
                         "Use get_balance for the account balance, get_session_cost for the "
-                        "current session spend, and get_usage_summary for a multi-day rollup."
+                        "current session spend, and get_usage_summary for a multi-day rollup. "
+                        "Use get_status_line to obtain the line a reply should end with (it "
+                        "returns an empty string when the user disabled that display), and "
+                        "configure to read or change the show_in_reply / show_in_hook toggles."
                     ),
                 },
             }

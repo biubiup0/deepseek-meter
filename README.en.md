@@ -9,19 +9,19 @@ English · [简体中文](README.md)
 After each turn, a one-line summary appears in the conversation:
 
 ```
-DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59
 ```
 
 The token figures cover **that single run** (one request/answer pair), so you can see
-what each operation consumed, and the trailing link opens the official DeepSeek top-up
-page. (The summary text itself is Chinese.)
+what each operation consumed. Both the reply line and the hook summary have their own
+on/off switch — see "Display toggles" below. (The summary text itself is Chinese.)
 
 ## Features
 
 - **Automatic per-turn summary** via a `Stop` hook: spend, tokens, account balance, model.
 - **`get_balance`** — reads the official DeepSeek `/user/balance` endpoint, including granted and topped-up balance.
-- **`get_session_cost`** — per-run **and** whole-conversation breakdowns: model calls, input/output/cached/reasoning tokens, estimated spend, peak-hour calls, and the top-up link.
-- **One-tap top-up** — the summary ends with `https://platform.deepseek.com/top_up`.
+- **`get_session_cost`** — per-run **and** whole-conversation breakdowns: model calls, input/output/cached/reasoning tokens, estimated spend, peak-hour calls.
+- **Display toggles** — the reply line and the hook summary can be switched on or off independently via `~/.codex/deepseek-meter/settings.json`.
 - **`get_usage_summary`** — rollup over the last N days (default 7), broken down per day.
 - **Daily price-table refresh** — at most once every 24 hours the plugin pulls the official Chinese pricing page, validates it (peak must be 2× off-peak, cache-hit < cache-miss < output) and caches it. A failed fetch or parse keeps the previous table or the built-in default.
 - **CNY pricing by default**, using DeepSeek's official Chinese price table with separate cache-hit, cache-miss, peak, and off-peak rates.
@@ -45,7 +45,7 @@ Manual install: copy `plugins/deepseek-meter` to `~/plugins/deepseek-meter`, add
 The automatic summary (once per turn):
 
 ```
-DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59
 ```
 
 **Timing:** the summary comes from a `Stop` hook, so it appears only after Codex has finished writing the reply for that turn — never before or in the middle of it. The hook has no in-progress status line and never makes Codex continue generating.
@@ -58,6 +58,8 @@ The three tools available in conversation:
 | `get_session_cost` | `session_id`, `transcript_path` (optional) | Returns both the latest run and the session total |
 | `get_usage_summary` | `days` (optional, default 7) | Rollup across recent sessions |
 | `refresh_prices` | none | Pull the official price table now and echo the current rates |
+| `get_status_line` | none | The exact line a reply should end with; empty string when that display is off |
+| `configure` | `show_in_reply`, `show_in_hook` (optional bools) | Read or change the two display toggles |
 
 ## Configuration
 
@@ -94,6 +96,12 @@ Only the fields you provide are overridden; set `currency` to `USD` to change th
 - **Trigger** — a `Stop` hook runs once the reply is complete, so the summary always lands after the answer. Turns without model calls stay silent, and the hook briefly retries so a late-written usage record is not missed.
 
 ## Changelog
+
+### v0.5.0
+
+- Removed the top-up link from the summary, `get_balance`, and `get_session_cost`
+- Added the `show_in_reply` / `show_in_hook` display toggles (`~/.codex/deepseek-meter/settings.json`)
+- Added `get_status_line` and `configure` tools; the reply line now comes from the tool and is omitted when switched off
 
 ### v0.4.0
 

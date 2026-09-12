@@ -9,10 +9,10 @@
 每次回答结束后，会话里会自动出现一行摘要：
 
 ```
-DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59
 ```
 
-token 数字是**这一轮**（一次请求/回答）的消耗，方便你知道每次运算花了多少；末尾的充值链接点开就是 DeepSeek 官方充值页。
+token 数字是**这一轮**（一次请求/回答）的消耗，方便你知道每次运算花了多少。正文这一行和钩子摘要都可以单独开关，见下文「显示开关」。
 
 想看细节就直接问：「这次会话花了多少？」「我的余额还有多少？」「最近 7 天用了多少？」
 
@@ -20,7 +20,7 @@ token 数字是**这一轮**（一次请求/回答）的消耗，方便你知道
 
 - **每轮自动摘要**：`Stop` 钩子在每轮结束时输出「本次花费 + tokens + 账户余额 + 模型」。
 - **本轮 token 明细**：摘要显示的是这一次运算的输入 / 输出 / 缓存命中 tokens，而不是整个会话的累计值；钩子会绑定本轮 turn id，即使用量记录稍晚落盘也不会串到上一轮。
-- **一键充值**：摘要余额后面直接给出官方充值页链接 `https://platform.deepseek.com/top_up`，点开即可充值。
+- **显示开关**：正文末尾那一行、以及每轮钩子摘要，可以分别开关；设置写在 `~/.codex/deepseek-meter/settings.json`，用 `configure` 工具或直接改文件都行。
 - **余额查询**（`get_balance`）：读取 DeepSeek 官方 `/user/balance`，包含赠送余额、充值余额和账户可用状态。
 - **本次会话花费**（`get_session_cost`）：模型调用次数、输入/输出/缓存命中/推理 tokens、按官方单价估算的花费、高峰时段调用次数。
 - **多日汇总**（`get_usage_summary`）：最近 N 天（默认 7 天）的会话数、调用次数、tokens 与花费，并按天列出。
@@ -52,7 +52,7 @@ codex plugin add deepseek-meter@personal
 自动摘要（每轮结束自动出现）：
 
 ```
-DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59 ｜ 充值 https://platform.deepseek.com/top_up
+DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）｜ 花费 ¥0.0021 ｜ 余额 ¥20.59
 ```
 
 **显示时机**：摘要由 `Stop` 钩子产生，只在 Codex 把这一轮内容输出完毕、本轮结束时出现，位置在回答之后；不会插进回答中间，也不会提前显示。钩子不设置进行中提示，也不会让 Codex 继续生成内容。
@@ -61,10 +61,12 @@ DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）�
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
-| `get_balance` | `force`（可选，布尔） | 忽略约 60 秒缓存，立即重新查询，并附充值页链接 |
+| `get_balance` | `force`（可选，布尔） | 忽略约 60 秒缓存，立即重新查询 |
 | `get_session_cost` | `session_id`、`transcript_path`（可选） | 同时给出「本轮」和「整个会话」两份明细 |
 | `get_usage_summary` | `days`（可选，默认 7） | 汇总最近若干天的会话 |
 | `refresh_prices` | 无 | 立刻拉取官方价目表并回显当前单价 |
+| `get_status_line` | 无 | 返回回复末尾该带的那一行；正文显示关闭时返回空字符串 |
+| `configure` | `show_in_reply`、`show_in_hook`（布尔，可选） | 读取或修改下面两个开关 |
 
 ## 配置
 
@@ -75,6 +77,20 @@ DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）�
 3. `~/.codex/config.toml` 中 `model_provider` 对应 provider 的 `experimental_bearer_token`
 
 插件不会打印或转存密钥，只在查询余额时用它请求官方接口。
+
+**显示开关**写在 `~/.codex/deepseek-meter/settings.json`：
+
+```json
+{
+  "show_in_reply": true,
+  "show_in_hook": true
+}
+```
+
+- `show_in_reply`：控制回复末尾那一行（由 `get_status_line` 读取，返回空则不加）。
+- `show_in_hook`：控制 `Stop` 钩子每轮结束后的摘要，关掉后钩子直接静默退出。
+
+改法有两种：直接编辑这个文件，或者让 Codex 调用 `configure` 工具（例如「把正文显示关掉、钩子保留」）。改完立即生效，不需要重装插件。
 
 **价格表**默认是官方中文价目表，并且每天自动更新一次（结果缓存在插件数据目录的 `prices-cache.json`）。需要手动覆盖时写 `~/.codex/deepseek-meter/prices.json`，它的优先级高于在线价目表：
 
@@ -105,6 +121,12 @@ DeepSeek · 本轮 12.4k tokens（入 11.9k / 出 0.5k，缓存命中 11.2k）�
 - **触发**：`Stop` 钩子在每轮结束时运行——也就是 Codex 把内容输出完毕、本轮停止之后——把摘要作为系统消息交给 Codex 显示，所以它总是出现在回答之后。没有模型调用的轮次保持静默；由于用量记录可能略晚落盘，钩子会短暂等待重试，避免统计为空。
 
 ## 更新日志
+
+### v0.5.0
+
+- 去掉充值链接：摘要、`get_balance`、`get_session_cost` 都不再附带 `platform.deepseek.com/top_up`
+- 新增两个显示开关 `show_in_reply` / `show_in_hook`（`~/.codex/deepseek-meter/settings.json`）
+- 新增 `get_status_line` 与 `configure` 工具：正文那一行改由工具按开关返回，关闭时不输出
 
 ### v0.4.0
 
